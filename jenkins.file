@@ -1,18 +1,72 @@
 pipeline {
     agent any
+
+    environment {
+        // Docker registry credentials ID in Jenkins
+        DOCKER_CREDENTIALS = 'docker-hub-cred'
+        DOCKER_IMAGE = 'my-app'               // Replace with your image name
+        REGISTRY = 'docker.io/your-username'  // Replace with your Docker registry
+        KUBE_CONFIG_CREDENTIALS = 'kubeconfig-cred' // Jenkins secret for kubeconfig
+        NAMESPACE = 'default'                 // Kubernetes namespace
+    }
+
     stages {
-        stage('Build') {
-            steps { sh 'npm install' }
-        }
-        stage('Docker Build & Push') {
-            steps { 
-                sh 'docker build -t myapp:latest .'
-                sh 'docker tag myapp:latest myrepo/myapp:latest'
-                sh 'docker push myrepo/myapp:latest'
+        stage('Checkout') {
+            steps {
+                git branch: 'main', url: 'https://github.com/your-repo.git'
             }
         }
-        stage('Deploy to K8s') {
-            steps { sh 'kubectl apply -f deployment.yaml' }
+
+        stage('Build') {
+            steps {
+                script {
+                    sh 'docker build -t $DOCKER_IMAGE:latest .'
+                }
+            }
+        }
+
+        stage('Unit Test') {
+            steps {
+                script {
+                    // Example: Adjust command based on your project
+                    sh './run-tests.sh || true'
+                }
+            }
+        }
+
+        stage('Push Docker Image') {
+            steps {
+                script {
+                    withCredentials([usernamePassword(credentialsId: "$DOCKER_CREDENTIALS", 
+                                                     usernameVariable: 'USER', 
+                                                     passwordVariable: 'PASS')]) {
+                        sh "echo $PASS | docker login $REGISTRY -u $USER --password-stdin"
+                        sh "docker tag $DOCKER_IMAGE:latest $REGISTRY/$DOCKER_IMAGE:latest"
+                        sh "docker push $REGISTRY/$DOCKER_IMAGE:latest"
+                    }
+                }
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                script {
+                    withCredentials([file(credentialsId: "$KUBE_CONFIG_CREDENTIALS", variable: 'KUBECONFIG_FILE')]) {
+                        sh 'export KUBECONFIG=$KUBECONFIG_FILE'
+                        sh 'kubectl set image deployment/my-app-deployment my-app=$REGISTRY/$DOCKER_IMAGE:latest -n $NAMESPACE'
+                        sh 'kubectl rollout status deployment/my-app-deployment -n $NAMESPACE'
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Deployment successful!'
+        }
+        failure {
+            echo 'Deployment failed!'
         }
     }
 }
