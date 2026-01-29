@@ -1,0 +1,19 @@
+pipeline {
+    agent any
+    stages {
+        stage('Build') {
+            steps { sh 'npm install' }
+        }
+        stage('Docker Build & Push') {
+            steps { 
+                sh 'docker build -t myapp:latest .'
+                sh 'docker tag myapp:latest myrepo/myapp:latest'
+                sh 'docker push myrepo/myapp:latest'
+            }
+        }
+        stage('Deploy to K8s') {
+            steps { sh 'kubectl apply -f deployment.yaml' }
+        }
+    }
+}
+
